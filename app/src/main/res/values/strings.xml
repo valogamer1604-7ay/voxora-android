@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Voxora</string>
+    <string name="service_label">Voxora voice bubble</string>
+    <string name="service_description">Voxora shows a small voice bubble when you tap a normal text box. Hold it, speak, and release: Voxora types your words into that box. It never reads or types into password, PIN, OTP or card fields, never sends messages for you, and does not save what other apps show on screen.</string>
+</resources>
