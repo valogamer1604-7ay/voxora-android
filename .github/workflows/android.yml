@@ -23,22 +23,35 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Unpack signing key (stored in GitHub Secrets, never in the code)
+        env:
+          KS: ${{ secrets.VOXORA_KEYSTORE }}
+        run: echo "$KS" | base64 -d > $RUNNER_TEMP/voxora.p12
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Voxora.apk
+      - name: Build signed release APK
+        env:
+          VOXORA_KEYSTORE_FILE: ${{ runner.temp }}/voxora.p12
+          VOXORA_KEY_PASSWORD: ${{ secrets.VOXORA_KEY_PASSWORD }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk Voxora.apk
+          rm -f $RUNNER_TEMP/voxora.p12
+          sha256sum Voxora.apk | tee Voxora.apk.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Voxora-debug-apk
-          path: Voxora.apk
+          name: Voxora-apk
+          path: |
+            Voxora.apk
+            Voxora.apk.sha256
 
       - name: Publish to Releases (easy phone download)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest Voxora.apk \
+          gh release create latest Voxora.apk Voxora.apk.sha256 \
             --title "Voxora - latest build" \
-            --notes "Download Voxora.apk on your Android phone and install it. Built from commit ${GITHUB_SHA::7}."
+            --notes "Signed release build from commit ${GITHUB_SHA::7}. Download Voxora.apk on your Android phone and install it. If you installed an older test build, uninstall it first."

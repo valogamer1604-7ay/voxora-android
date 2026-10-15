@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- The ONLY permission Voxora asks for. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Needed on Android 11+ so we can find the phone's speech recognizer -->
+    <!-- Voxora can never use the internet itself, even if a library tries to add it. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -13,14 +17,19 @@
 
     <application
         android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_rules"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.Voxora">
+        android:theme="@style/Theme.Voxora"
+        tools:targetApi="35">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:excludeFromRecents="false"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -28,9 +37,10 @@
             </intent-filter>
         </activity>
 
+        <!-- Only the Android system can connect: BIND_ACCESSIBILITY_SERVICE is a system-only permission. -->
         <service
             android:name=".TypingService"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

@@ -60,7 +60,7 @@ class VoiceEngine(
         if (recognizer == null) {
             recognizer = SpeechRecognizer.createSpeechRecognizer(context).also { it.setRecognitionListener(listener) }
         }
-        val lang = Prefs.language(context)
+        val lang = Languages.resolve(Prefs.language(context))
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)

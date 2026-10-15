@@ -6,22 +6,30 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableIntStateOf
 
 class MainActivity : ComponentActivity() {
 
-    /** bumps every time the user comes back, so the screen re-checks permissions */
     private val tick = mutableIntStateOf(0)
-
     private val micLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick.intValue++ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // No screenshots, screen recording or recent-apps preview of your dictations.
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Ignore taps when another app draws a fake screen on top (tapjacking protection).
+        window.decorView.filterTouchesWhenObscured = true
+
+        val genuine = Guard.isGenuine(this)
         setContent {
-            VoxoraApp(
+            VoxoraRoot(
+                genuine = genuine,
                 tick = tick.intValue,
                 hasMic = { hasMic() },
                 hasAccess = { hasAccessibility() },
@@ -30,6 +38,7 @@ class MainActivity : ComponentActivity() {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 },
                 onChanged = { TypingService.instance?.refreshBubbleSetting(); tick.intValue++ },
+                onDecline = { finishAndRemoveTask() },
             )
         }
     }

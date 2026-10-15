@@ -2,8 +2,6 @@ package com.voxora.app
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
@@ -34,12 +32,24 @@ class TypingService : AccessibilityService() {
     private var target: AccessibilityNodeInfo? = null
     private var engine: VoiceEngine? = null
     private var busy = false
+    private var genuine = true
+
+    // for "scratch that": what the box looked like before our last insert (kept in memory only)
+    private var undoNode: AccessibilityNodeInfo? = null
+    private var undoText: String? = null
 
     private val hideRunnable = Runnable { if (!busy) hideBubble() }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        genuine = Guard.isGenuine(this)
+        if (!genuine) {
+            // A modified copy of Voxora: refuse to run.
+            toast("This copy of Voxora was modified. Install the official version.")
+            disableSelf()
+            return
+        }
         engine = VoiceEngine(
             this,
             onLevel = { bubble?.setLevel(it) },
@@ -59,8 +69,10 @@ class TypingService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (busy) return
-        if (!Prefs.bubbleOn(this)) { hideBubble(); return }
+        if (busy || !genuine) return
+        if (!Prefs.bubbleOn(this) || !Prefs.consented(this) || Guard.isLocked(this)) { hideBubble(); return }
+        val pkg = event?.packageName?.toString()
+        if (pkg != null && pkg in Guard.blockedApps) { hideBubble(); return }
         val node = findEditableFocus(event)
         if (node != null && isAllowed(node)) {
             target = node
@@ -92,6 +104,8 @@ class TypingService : AccessibilityService() {
     /** Never appear on passwords, PINs, OTPs, card numbers or phone-number boxes. */
     private fun isAllowed(n: AccessibilityNodeInfo): Boolean {
         if (n.isPassword) return false
+        val pkg = n.packageName?.toString()
+        if (pkg != null && pkg in Guard.blockedApps) return false
         val type = n.inputType
         val cls = type and InputType.TYPE_MASK_CLASS
         val variation = type and InputType.TYPE_MASK_VARIATION
@@ -198,12 +212,17 @@ class TypingService : AccessibilityService() {
     // ---------- results ----------
 
     private fun handleResult(raw: String) {
-        val text = TextCleaner.clean(raw, Prefs.removeFillers(this))
+        if (Prefs.voiceCommands(this) && TextCleaner.isUndo(raw)) { undo(); return }
+        val text = TextCleaner.clean(
+            raw, Prefs.removeFillers(this), Prefs.voiceCommands(this),
+            Languages.isEnglish(Prefs.language(this)), Prefs.shortcuts(this)
+        )
+        if (text.isBlank()) { flash(BubbleView.Mode.ERROR); return }
         Prefs.setLastText(this, text)
         Prefs.addWords(this, text.split(Regex("\\s+")).count { it.isNotBlank() })
         val ok = target?.let { insert(it, text) } ?: false
         if (!ok) {
-            copy(text)
+            Guard.safeCopy(this, text)
             toast("Copied. Long-press the text box and tap Paste")
         }
         flash(if (ok) BubbleView.Mode.DONE else BubbleView.Mode.ERROR)
@@ -220,6 +239,15 @@ class TypingService : AccessibilityService() {
             busy = false
             bubble?.mode = BubbleView.Mode.IDLE
         }, 700)
+    }
+
+    private fun undo() {
+        val n = undoNode; val before = undoText
+        if (n == null || before == null) { toast("Nothing to undo"); flash(BubbleView.Mode.ERROR); return }
+        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, before) }
+        val ok = try { n.refresh(); n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) } catch (_: Exception) { false }
+        undoNode = null; undoText = null
+        flash(if (ok) BubbleView.Mode.DONE else BubbleView.Mode.ERROR)
     }
 
     /** Puts the words at the cursor. Does NOT press send. */
@@ -241,6 +269,7 @@ class TypingService : AccessibilityService() {
             val args = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
             }
+            undoNode = node; undoText = existing
             if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
                 val cursor = (before + piece).length
                 val sel = Bundle().apply {
@@ -251,17 +280,12 @@ class TypingService : AccessibilityService() {
                 node.refresh()
                 if (node.text?.toString()?.contains(text) == true) return true
             }
-            // fallback: paste
-            copy(piece)
+            // fallback: paste (clipboard is marked sensitive and wiped after 60s)
+            Guard.safeCopy(this, piece)
             return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
         } catch (_: Exception) {
             return false
         }
-    }
-
-    private fun copy(text: String) {
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("Voxora", text))
     }
 
     private fun toast(msg: String) = main.post { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
